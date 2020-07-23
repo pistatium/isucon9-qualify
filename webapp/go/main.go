@@ -24,6 +24,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+
 const (
 	sessionName = "session_isucari"
 
@@ -55,7 +56,7 @@ const (
 	ItemsPerPage        = 48
 	TransactionsPerPage = 10
 
-	BcryptCost = 10
+	BcryptCost = 4
 )
 
 var (
@@ -160,13 +161,6 @@ type Shipping struct {
 	ImgBinary             []byte    `json:"-" db:"img_binary"`
 	CreatedAt             time.Time `json:"-" db:"created_at"`
 	UpdatedAt             time.Time `json:"-" db:"updated_at"`
-}
-
-type Category struct {
-	ID                 int    `json:"id" db:"id"`
-	ParentID           int    `json:"parent_id" db:"parent_id"`
-	CategoryName       string `json:"category_name" db:"category_name"`
-	ParentCategoryName string `json:"parent_category_name,omitempty" db:"-"`
 }
 
 type reqInitialize struct {
@@ -277,7 +271,15 @@ func init() {
 	))
 }
 
+var categories map[string] Category
+
 func main() {
+
+	err := json.Unmarshal([]byte(cjson), &categories)
+	fmt.Println("%v", err)
+	for i, c := range categories {
+		fmt.Printf("%v %v\n", i, c)
+	}
 	host := os.Getenv("MYSQL_HOST")
 	if host == "" {
 		host = "127.0.0.1"
@@ -286,7 +288,7 @@ func main() {
 	if port == "" {
 		port = "3306"
 	}
-	_, err := strconv.Atoi(port)
+	_, err = strconv.Atoi(port)
 	if err != nil {
 		log.Fatalf("failed to read DB port number from an environment variable MYSQL_PORT.\nError: %s", err.Error())
 	}
@@ -416,6 +418,7 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 
 	return userSimple, err
 }
+
 func syncSimpleUser(q sqlx.Queryer, userIDs []int64) error {
 	if len(userIDs) == 0 {
 		return nil
@@ -448,14 +451,7 @@ func syncSimpleUser(q sqlx.Queryer, userIDs []int64) error {
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
-	err = sqlx.Get(q, &category, "SELECT * FROM `categories` WHERE `id` = ?", categoryID)
-	if category.ParentID != 0 {
-		parentCategory, err := getCategoryByID(q, category.ParentID)
-		if err != nil {
-			return category, err
-		}
-		category.ParentCategoryName = parentCategory.CategoryName
-	}
+	category = categories[strconv.Itoa(categoryID)]
 	return category, err
 }
 
@@ -653,11 +649,10 @@ func getNewCategoryItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var categoryIDs []int
-	err = dbx.Select(&categoryIDs, "SELECT id FROM `categories` WHERE parent_id=?", rootCategory.ID)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	for _, cat := range categories {
+		if cat.ParentID == rootCategory.ID {
+			categoryIDs = append(categoryIDs, cat.ID)
+		}
 	}
 
 	query := r.URL.Query()
@@ -2061,8 +2056,8 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 	tx.Commit()
 	if _, ok := cacheUser[seller.ID]; ok {
 		mu.Lock()
-		defer mu.Unlock()
 		delete(cacheUser, seller.ID)
+		mu.Unlock()
 	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
@@ -2174,8 +2169,8 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	tx.Commit()
 	if _, ok := cacheUser[seller.ID]; ok {
 		mu.Lock()
-		defer mu.Unlock()
 		delete(cacheUser, seller.ID)
+		mu.Unlock()
 	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(&resItemEdit{
@@ -2199,15 +2194,12 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 
 	ress.PaymentServiceURL = getPaymentServiceURL()
 
-	categories := []Category{}
+	cats := []Category{}
 
-	err := dbx.Select(&categories, "SELECT * FROM `categories`")
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
+	for _, category := range categories {
+		cats = append(cats, category)
 	}
-	ress.Categories = categories
+	ress.Categories = cats
 
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(ress)
@@ -2220,13 +2212,11 @@ func postLogin(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusBadRequest, "json decode error")
 		return
 	}
-
 	accountName := rl.AccountName
 	password := rl.Password
 
 	if accountName == "" || password == "" {
 		outputErrorMsg(w, http.StatusBadRequest, "all parameters are required")
-
 		return
 	}
 
