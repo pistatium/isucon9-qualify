@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"sync"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -312,9 +313,12 @@ func main() {
 	)
 
 	dbx, err = sqlx.Open("mysql", dsn)
+
 	if err != nil {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
+	dbx.SetMaxOpenConns(100)
+	dbx.SetMaxIdleConns(100)
 	defer dbx.Close()
 
 	mux := goji.NewMux()
@@ -393,8 +397,12 @@ func getUser(r *http.Request) (user User, errCode int, errMsg string) {
 	return user, http.StatusOK, ""
 }
 
-var cacheUser map[int64] UserSimple;
+var cacheUser = make(map[int64] UserSimple)
+var mu sync.Mutex
+
 func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err error) {
+	mu.Lock()
+	defer mu.Unlock()
 	if user, ok := cacheUser[userID]; ok {
 		return user, nil
 	}
@@ -406,8 +414,8 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	userSimple.ID = user.ID
 	userSimple.AccountName = user.AccountName
 	userSimple.NumSellItems = user.NumSellItems
-	// FIXME
-	//cacheUser[userID] = userSimple
+	cacheUser[userID] = userSimple
+
 	return userSimple, err
 }
 
@@ -2008,7 +2016,11 @@ func postSell(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tx.Commit()
-
+	if _, ok := cacheUser[seller.ID]; ok {
+		mu.Lock()
+		defer mu.Unlock()
+		delete(cacheUser, seller.ID)
+	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(resSell{ID: itemID})
 }
@@ -2117,7 +2129,11 @@ func postBump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tx.Commit()
-
+	if _, ok := cacheUser[seller.ID]; ok {
+		mu.Lock()
+		defer mu.Unlock()
+		delete(cacheUser, seller.ID)
+	}
 	w.Header().Set("Content-Type", "application/json;charset=utf-8")
 	json.NewEncoder(w).Encode(&resItemEdit{
 		ItemID:        targetItem.ID,
