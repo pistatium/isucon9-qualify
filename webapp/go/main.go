@@ -317,8 +317,6 @@ func main() {
 	if err != nil {
 		log.Fatalf("failed to connect to DB: %s.", err.Error())
 	}
-	dbx.SetMaxOpenConns(100)
-	dbx.SetMaxIdleConns(100)
 	defer dbx.Close()
 
 	mux := goji.NewMux()
@@ -417,6 +415,36 @@ func getUserSimpleByID(q sqlx.Queryer, userID int64) (userSimple UserSimple, err
 	cacheUser[userID] = userSimple
 
 	return userSimple, err
+}
+func syncSimpleUser(q sqlx.Queryer, userIDs []int64) error {
+	if len(userIDs) == 0 {
+		return nil
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	// users := make([]SimpleUser, 0)
+	sql := "SELECT * FROM `users` WHERE `id` in (?)"
+	sql, params, err := sqlx.In(sql, userIDs)
+	if err != nil {
+		log.Fatal(err)
+	}
+	rows, err := q.Queryx(sql, params...)
+	if err != nil {
+		return err
+	}
+	var user User
+	for rows.Next() {
+		err := rows.StructScan(&user)
+		if err != nil {
+			log.Fatal(err)
+		}
+		cacheUser[user.ID] = UserSimple{
+			ID:           user.ID,
+			AccountName:  user.AccountName,
+			NumSellItems: user.NumSellItems,
+		}
+	}
+	return nil
 }
 
 func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err error) {
@@ -906,6 +934,21 @@ func getTransactions(w http.ResponseWriter, r *http.Request) {
 			tx.Rollback()
 			return
 		}
+	}
+
+	var userIDs []int64
+	for _, item := range items {
+		mu.Lock()
+		if _, ok := cacheUser[item.SellerID]; !ok {
+			userIDs = append(userIDs, item.SellerID)
+		}
+		if _, ok := cacheUser[item.BuyerID]; !ok {
+			userIDs = append(userIDs, item.BuyerID)
+		}
+		mu.Unlock()
+	}
+	if err := syncSimpleUser(tx, userIDs); err != nil {
+		outputErrorMsg(w, http.StatusBadRequest, fmt.Sprintf("err %w", err))
 	}
 
 	itemDetails := []ItemDetail{}
