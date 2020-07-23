@@ -22,7 +22,7 @@ CREATE TABLE `items` (
   `id` bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
   `seller_id` bigint NOT NULL,
   `buyer_id` bigint NOT NULL DEFAULT 0,
-  `status` enum('on_sale', 'trading', 'sold_out', 'stop', 'cancel') NOT NULL,
+  `status` enum('on_sale', 'trading', 'sold_out') NOT NULL,
   `name` varchar(191) NOT NULL,
   `price` int unsigned NOT NULL,
   `description` text NOT NULL,
