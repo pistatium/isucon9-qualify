@@ -455,6 +455,8 @@ func getCategoryByID(q sqlx.Queryer, categoryID int) (category Category, err err
 	return category, err
 }
 
+
+
 func getConfigByName(name string) (string, error) {
 	config := Config{}
 	err := dbx.Get(&config, "SELECT * FROM `configs` WHERE `name` = ?", name)
@@ -468,20 +470,14 @@ func getConfigByName(name string) (string, error) {
 	return config.Val, err
 }
 
+var PaymentServiceURL string
+var ShipmentServiceURL string
 func getPaymentServiceURL() string {
-	val, _ := getConfigByName("payment_service_url")
-	if val == "" {
-		return DefaultPaymentServiceURL
-	}
-	return val
+	return PaymentServiceURL
 }
 
 func getShipmentServiceURL() string {
-	val, _ := getConfigByName("shipment_service_url")
-	if val == "" {
-		return DefaultShipmentServiceURL
-	}
-	return val
+	return ShipmentServiceURL
 }
 
 func getIndex(w http.ResponseWriter, r *http.Request) {
@@ -505,27 +501,28 @@ func postInitialize(w http.ResponseWriter, r *http.Request) {
 		outputErrorMsg(w, http.StatusInternalServerError, "exec init.sh error")
 		return
 	}
-
-	_, err = dbx.Exec(
-		"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
-		"payment_service_url",
-		ri.PaymentServiceURL,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
-	_, err = dbx.Exec(
-		"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
-		"shipment_service_url",
-		ri.ShipmentServiceURL,
-	)
-	if err != nil {
-		log.Print(err)
-		outputErrorMsg(w, http.StatusInternalServerError, "db error")
-		return
-	}
+	PaymentServiceURL = ri.PaymentServiceURL
+	ShipmentServiceURL = ri.ShipmentServiceURL
+	//_, err = dbx.Exec(
+	//	"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
+	//	"payment_service_url",
+	//	ri.PaymentServiceURL,
+	//)
+	//if err != nil {
+	//	log.Print(err)
+	//	outputErrorMsg(w, http.StatusInternalServerError, "db error")
+	//	return
+	//}
+	//_, err = dbx.Exec(
+	//	"INSERT INTO `configs` (`name`, `val`) VALUES (?, ?) ON DUPLICATE KEY UPDATE `val` = VALUES(`val`)",
+	//	"shipment_service_url",
+	//	ri.ShipmentServiceURL,
+	//)
+	//if err != nil {
+	//	log.Print(err)
+	//	outputErrorMsg(w, http.StatusInternalServerError, "db error")
+	//	return
+	//}
 
 	res := resInitialize{
 		// キャンペーン実施時には還元率の設定を返す。詳しくはマニュアルを参照のこと。
